@@ -1,124 +1,131 @@
-# DotnetTemplate
+# FunChat 🎉
 
-日本語環境の .NET / C# 開発で GitHub Copilot を安全かつ一貫して使うための、リポジトリ向け Copilot customization テンプレートです。
+FunChat は、ASP.NET Core / Blazor Interactive Server で作った、明るく楽しいリアルタイムチャットアプリです。
 
-このリポジトリには、Copilot Agent Skills、Custom Agents、Pull Request テンプレートを含めています。.NET / C# の実装、レビュー、テスト、Microsoft Learn 調査、GitHub CLI 操作、アクセシビリティ確認を、日本語チームの運用に合わせて支援することを目的にしています。
+ニックネームと絵文字アバターを選んで参加し、複数のブラウザータブ間でメッセージやリアクションをリアルタイムにやり取りできます。
 
-## 主な内容
+## 主な機能
 
-| 種別 | パス | 用途 |
-|---|---|---|
-| Agent Skills | `.github\skills\<skill-name>\SKILL.md` | Copilot がタスクに応じて読み込む専門手順・規約・参照情報 |
-| Custom Agents | `.github\agents\*.agent.md` | 役割ごとの専門 Agent 定義 |
-| Pull Request template | `.github\pull_request_template.md` | .NET 向け PR 記述・確認チェックリスト |
-
-## 想定する開発方針
-
-- .NET / C# を前提にします。
-- テストは xUnit を基本にします。
-- 現在時刻の取得は `DateTime.Now` / `DateTimeOffset.Now` / `DateTime.UtcNow` を直接使わず、`TimeProvider` を使います。
-- AI 操作は Microsoft Agent Framework を優先します。
-- 日本語環境として UTF-8、Windows / PowerShell、`ja-JP`、`Asia/Tokyo` を考慮します。
-- ASP.NET Core / Razor / Blazor / MVC / Fluent UI Blazor ではアクセシビリティをレビュー観点に含めます。
-
-## 既定アーキテクチャ
-
-ユーザーから明示的な指定がない場合、新規 .NET アプリケーションでは次を既定として採用します。既存プロジェクトでは既存構成を優先し、必要な差分だけ適用します。
-
-| 項目 | 既定 |
+| 機能 | 内容 |
 |---|---|
-| Runtime / Framework | 最新の安定版 .NET SDK と ASP.NET Core。preview / RC は明示指定がある場合だけ使用 |
-| UI | Blazor Web App の Interactive Server render mode |
-| Component library | Fluent UI Blazor (`Microsoft.FluentUI.AspNetCore.Components`) |
-| App orchestration | .NET Aspire の AppHost と ServiceDefaults |
-| Data access | 永続化が必要な場合のみ EF Core |
-| Database | DB が必要な場合は SQL Server を第一候補 |
-| Testing | xUnit。時刻依存テストは `FakeTimeProvider` |
-| Time / locale | 内部処理は UTC、表示・入力は `ja-JP` / `Asia/Tokyo` を考慮 |
-| Configuration | Options pattern、User Secrets、環境変数。secret はリポジトリに含めない |
-| Observability | Aspire ServiceDefaults と OpenTelemetry を優先 |
-| Accessibility | Fluent UI Blazor / Blazor UI では WCAG 2.2、JIS X 8341-3、keyboard / focus / label / ARIA を確認 |
+| リアルタイムチャット | Blazor Interactive Server の SignalR 接続で複数タブ間を即時同期 |
+| ニックネーム参加 | 最大 20 文字のニックネームで参加 |
+| 絵文字アバター | 18 種類の絵文字アバターから選択 |
+| クイックリアクション | 👍 ❤️ 😂 😮 🎉 🔥 をワンクリックで送信 |
+| 参加・退出通知 | 入室・退出をメッセージ一覧に表示 |
+| メッセージ履歴 | 最新 100 件をインメモリで保持 |
+| 文字数制限 | メッセージ本文は最大 500 文字 |
+| 楽しい UI | グラデーション、チャットバブル、絵文字を使った明るい画面 |
+| アクセシビリティ | ラベル、キーボード操作、フォーカス制御、`aria-live`、強制カラーモードに対応 |
 
-既定の solution 構成は、規模に応じて最小構成から始めます。
+## 技術スタック
 
-| 用途 | 例 |
+| 項目 | 採用技術 |
 |---|---|
-| Web UI | `src\<ProductName>.Web` |
-| Aspire AppHost | `src\<ProductName>.AppHost` |
-| Aspire ServiceDefaults | `src\<ProductName>.ServiceDefaults` |
-| Tests | `tests\<ProductName>.Tests` |
-| Domain / Application / Infrastructure | 複雑な業務ロジックや外部依存が増えた場合だけ分割 |
+| Runtime | .NET 9 |
+| Web framework | ASP.NET Core |
+| UI | Blazor Web App / Interactive Server |
+| Realtime | SignalR |
+| Test | xUnit |
+| Time handling | `TimeProvider` |
+| Storage | インメモリ履歴 |
 
-## Custom Agents
+## 必要な環境
 
-`.github\agents` には、.NET / C# 開発向けの役割分担を定義しています。
+- .NET 9 SDK
+- Windows / PowerShell
 
-| Agent | 役割 | 権限の考え方 |
-|---|---|---|
-| `.NET 開発オーケストレーター` | .NET / C# の実装、修正、テスト追加、リファクタリング、レビュー反映依頼で最初に呼ばれる入口 Agent | 自身は書き換えず、必要な Agent を統括 |
-| `.NET コードライター` | C# / .NET コード、xUnit テスト、関連ファイルを実装・修正する Writer | 書き込み担当 |
-| `.NET コードレビュアー` | 差分を読み取り、bug、security、設計、テスト不足などをレビュー | 読み取り専用 |
-| `.NET レビューチェッカー` | Reviewer とアクセシビリティ専門家の指摘が正当かを分類 | 読み取り専用 |
-| `アクセシビリティ専門家` | ASP.NET Core UI 差分を WCAG / JIS / 日本語 UX 観点で確認 | 読み取り専用 |
-| `C#/.NET 専門家` | Orchestrator から必要時に呼ばれる .NET / C# 固有判断の相談役 | 読み取り専用 |
+SDK バージョンは `global.json` で固定しています。
 
-### Agent の基本フロー
-
-1. `.NET 開発オーケストレーター` がユーザー要求を整理します。
-2. 必要に応じて `C#/.NET 専門家` へ設計、API、互換性、性能、セキュリティの助言を求めます。
-3. `.NET コードライター` が実装とテストを行います。
-4. `.NET コードレビュアー` が差分をレビューします。
-5. ASP.NET Core UI 変更がある場合は `アクセシビリティ専門家` が専門レビューします。
-6. `.NET レビューチェッカー` が指摘の正当性を確認します。
-7. 正当な未解決指摘がなくなるまで Writer が修正し、Orchestrator が収束判定します。
-
-## Agent Skills
-
-`.github\skills` には、Copilot が関連タスクで参照できる Skill を配置しています。
-
-| Skill | 用途 |
-|---|---|
-| `aspire` | .NET Aspire の AppHost、分散アプリ構成、サービス検出、統合、ダッシュボード、テスト |
-| `csharp-docs` | C# / .NET の XML ドキュメントコメント、API ドキュメント、サンプルコード |
-| `csharp-xunit` | xUnit による .NET / C# テスト設計、実装、保守 |
-| `dotnet-best-practices` | .NET / C# の設計、DI、設定、ログ、例外、非同期、TimeProvider、Microsoft Agent Framework |
-| `dotnet-design-pattern-review` | 設計パターン、SOLID、DI、Repository、Provider、Factory、Command などのレビュー |
-| `dotnet-timezone` | `TimeProvider`、`TimeZoneInfo`、`DateTimeOffset`、日本時間、タイムゾーン処理 |
-| `ef-core` | Entity Framework Core の DbContext、Entity、LINQ、Migration、性能、テスト |
-| `fluentui-blazor` | Fluent UI Blazor による UI 実装、DataGrid、レイアウト、テーマ、アクセシビリティ |
-| `gh-cli` | GitHub CLI による repository、issue、PR、Actions、release、API 操作 |
-| `git-commit` | Git commit 作成、Conventional Commits、差分確認、機密情報混入防止 |
-| `github-issues` | GitHub Issues の作成、検索、triage、ラベル、assignee、milestone、Projects 連携 |
-| `microsoft-agent-framework` | Microsoft Agent Framework の設計、実装、レビュー、移行 |
-| `microsoft-code-reference` | Microsoft / Azure / .NET SDK の API、公式コードサンプル、メソッド署名確認 |
-| `microsoft-docs` | Microsoft Learn と Microsoft 技術ドキュメントの調査、要約、参照 |
-
-## 使い方
-
-このリポジトリをベースに、対象プロジェクトへ `.github` 配下を配置します。
-
-Copilot CLI や Copilot cloud agent で Custom Agents / Agent Skills が利用可能な環境では、`.github\agents` と `.github\skills` がリポジトリスコープの customization として扱われます。
-
-.NET / C# の実装依頼では、`.NET 開発オーケストレーター` を入口にしてください。C# / .NET の専門判断が必要な場合は、Orchestrator が `C#/.NET 専門家` を相談役として利用します。
-
-## 検証
-
-Agent Skills の構成は GitHub CLI で dry run 検証できます。
+## 起動方法
 
 ```powershell
-gh skill publish .github\skills --dry-run
+dotnet restore .\FunChat.sln
+dotnet run --project src\FunChat.Web\FunChat.Web.csproj
 ```
 
-Custom Agents の `tools` は GitHub Docs の custom agents configuration にある tool aliases を使います。
+起動後、ブラウザーで次の URL を開きます。
 
-- `read`
-- `search`
-- `edit`
-- `execute`
-- `agent`
-- `web`
+```text
+http://localhost:5200
+```
 
-読み取り専用 Agent には `edit` / `execute` を付与しない方針です。
+2 つ以上のブラウザータブで同じ URL を開くと、タブ間でメッセージがリアルタイムに同期されます。
+
+HTTPS プロファイルで起動する場合は次のコマンドを使います。
+
+```powershell
+dotnet run --project src\FunChat.Web\FunChat.Web.csproj --launch-profile https
+```
+
+開発証明書が未信頼の場合は、必要に応じて次を実行してください。
+
+```powershell
+dotnet dev-certs https --trust
+```
+
+## ビルドとテスト
+
+```powershell
+dotnet build .\FunChat.sln
+dotnet test .\FunChat.sln
+```
+
+現在のテストは `ChatService` の中核ロジックを対象にしています。
+
+| テスト対象 | 確認内容 |
+|---|---|
+| 履歴取得 | 初期状態、追加後の取得、スナップショット独立性 |
+| 投稿処理 | 正常投稿、トリム、メッセージ種別、ID 生成 |
+| バリデーション | 空入力、文字数上限、境界値 |
+| 履歴上限 | 100 件を超えたときに古いメッセージを削除 |
+| イベント通知 | `MessageAdded` の発火と購読解除 |
+| 時刻 | `TimeProvider` から UTC 時刻を取得 |
+
+## プロジェクト構成
+
+```text
+FunChat.sln
+├── global.json
+├── src
+│   └── FunChat.Web
+│       ├── Components
+│       │   ├── App.razor
+│       │   ├── Routes.razor
+│       │   ├── _Imports.razor
+│       │   ├── Layout
+│       │   │   └── MainLayout.razor
+│       │   └── Pages
+│       │       └── Chat.razor
+│       ├── Models
+│       │   ├── ChatMessage.cs
+│       │   └── MessageType.cs
+│       ├── Services
+│       │   ├── IChatService.cs
+│       │   └── ChatService.cs
+│       ├── wwwroot
+│       │   └── app.css
+│       └── Program.cs
+└── tests
+    └── FunChat.Web.Tests
+        └── ChatServiceTests.cs
+```
+
+## 実装メモ
+
+- `ChatService` は singleton として登録し、チャット履歴をインメモリで管理します。
+- 履歴操作は `Lock` で保護し、複数接続からの投稿に対応します。
+- 現在時刻は `DateTime.Now` などを直接使わず、DI された `TimeProvider` から取得します。
+- メッセージは Blazor の通常レンダリングで表示し、生 HTML として挿入しません。
+- 同じニックネームの参加者がいても自分の投稿を判定できるよう、画面セッションごとの ID をメッセージに保持します。
+- UI は `prefers-reduced-motion` と `forced-colors` を考慮しています。
+
+## 制限事項
+
+- メッセージ履歴はインメモリ保存のため、アプリを再起動すると消えます。
+- 認証機能はありません。
+- 複数サーバー構成には対応していません。スケールアウトする場合は SignalR backplane などが必要です。
+- 荒らし対策、レート制限、NG ワード判定は未実装です。
 
 ## ライセンス
 

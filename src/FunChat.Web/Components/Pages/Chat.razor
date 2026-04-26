@@ -1,0 +1,356 @@
+@page "/"
+@rendermode InteractiveServer
+@inject IChatService ChatService
+@inject Microsoft.Extensions.Logging.ILogger<Chat> Logger
+@implements IDisposable
+
+<PageTitle>@(_joined ? $"{_myAvatar} {_myNickname} - FunChat チャット中" : "FunChat - 参加")</PageTitle>
+<div class="sr-only" aria-live="polite" aria-atomic="true">@_viewAnnouncement</div>
+
+@if (!_joined)
+{
+    <!-- ニックネーム入力画面 -->
+    <section class="join-screen" aria-labelledby="join-title">
+        <div class="join-card">
+            <h1 id="join-title">🎉 FunChat へようこそ！</h1>
+            <p class="join-subtitle">ニックネームを入力してチャットを始めよう✨</p>
+
+            <div class="avatar-picker" role="group" aria-labelledby="avatar-label">
+                <p id="avatar-label" class="label-text">アバターを選んでね</p>
+                <div class="avatar-grid">
+                    @foreach (var emoji in _availableAvatars)
+                    {
+                        <button type="button"
+                                class="avatar-btn @(emoji == _selectedAvatar ? "selected" : "")"
+                                aria-label="@emoji を選択"
+                                aria-pressed="@(emoji == _selectedAvatar ? "true" : "false")"
+                                @onclick="() => _selectedAvatar = emoji">
+                            @emoji
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <EditForm Model="_joinModel" OnValidSubmit="HandleJoin" aria-label="チャット参加フォーム">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label for="nickname-input" class="label-text">ニックネーム</label>
+                    <input id="nickname-input"
+                           @ref="_nicknameInput"
+                           class="nickname-input"
+                           placeholder="例: たろう"
+                           maxlength="20"
+                           @bind="_joinModel.Nickname"
+                           @bind:event="oninput"
+                           aria-required="true"
+                           aria-describedby="nickname-error" />
+                    <ValidationMessage For="() => _joinModel.Nickname" id="nickname-error" role="alert" />
+                </div>
+                <button type="submit" class="join-btn">
+                    @_selectedAvatar チャット開始！
+                </button>
+            </EditForm>
+        </div>
+    </section>
+}
+else
+{
+    <!-- チャット画面 -->
+    <div class="chat-app">
+        <header class="chat-header" role="region" aria-label="チャット操作">
+            <h1 class="chat-title">🎉 FunChat</h1>
+            <div class="my-info" aria-label="参加中のユーザー情報">
+                <span class="my-avatar" aria-hidden="true">@_myAvatar</span>
+                <span class="my-nickname">@_myNickname</span>
+            </div>
+            <button type="button" class="leave-btn" @onclick="HandleLeave" aria-label="退出する">
+                退出 👋
+            </button>
+        </header>
+
+        <div class="chat-main">
+            <!-- メッセージ一覧 (aria-live で変更を読み上げ) -->
+            <section class="message-list-container"
+                     aria-label="チャットメッセージ"
+                     aria-live="polite"
+                     aria-atomic="false"
+                     aria-relevant="additions">
+                <ul class="message-list" id="message-list" role="list">
+                    @foreach (var msg in _messages)
+                    {
+                        <li class="message-item @GetMessageClass(msg)" role="listitem">
+                            @if (msg.Type == MessageType.Join || msg.Type == MessageType.Leave)
+                            {
+                                <div class="notice-message">
+                                    <span aria-hidden="true">@(msg.Type == MessageType.Join ? "🚪" : "👋")</span>
+                                    <span>@msg.Text</span>
+                                    <time datetime="@msg.Timestamp.ToString("o")"
+                                          title="@msg.Timestamp.ToLocalTime().ToString("HH:mm:ss")">
+                                        @msg.Timestamp.ToLocalTime().ToString("HH:mm")
+                                    </time>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="bubble-wrapper @(msg.SessionId == _mySessionId ? "mine" : "others")">
+                                    <span class="bubble-avatar" aria-hidden="true" title="@msg.Nickname">@msg.Avatar</span>
+                                    <div class="bubble-content">
+                                        <span class="bubble-nick">@msg.Nickname</span>
+                                        <div class="bubble @(msg.Type == MessageType.Reaction ? "reaction-bubble" : "")">
+                                            @msg.Text
+                                        </div>
+                                        <time class="bubble-time"
+                                              datetime="@msg.Timestamp.ToString("o")"
+                                              title="@msg.Timestamp.ToLocalTime().ToString("HH:mm:ss")">
+                                            @msg.Timestamp.ToLocalTime().ToString("HH:mm")
+                                        </time>
+                                    </div>
+                                </div>
+                            }
+                        </li>
+                    }
+                </ul>
+                <!-- 自動スクロール用アンカー -->
+                <div id="scroll-anchor" aria-hidden="true"></div>
+            </section>
+
+            <!-- リアクションボタン -->
+            <div class="reaction-bar" role="group" aria-label="クイックリアクション">
+                @foreach (var reaction in _reactions)
+                {
+                    <button type="button"
+                            class="reaction-btn"
+                            aria-label="@reaction を送信"
+                            @onclick="() => SendReaction(reaction)">
+                        @reaction
+                    </button>
+                }
+            </div>
+
+            <!-- メッセージ入力フォーム -->
+            <form class="input-form"
+                  @onsubmit="HandleSend"
+                  @onsubmit:preventDefault="true"
+                  aria-label="メッセージ送信フォーム">
+                <label for="msg-input" class="sr-only">メッセージを入力</label>
+                <input id="msg-input"
+                       @ref="_messageInput"
+                       type="text"
+                       class="msg-input"
+                       placeholder="メッセージを入力… 💬"
+                       maxlength="500"
+                       @bind="_inputText"
+                       @bind:event="oninput"
+                       @onkeydown="HandleKeyDown"
+                       aria-describedby="@(_errorMessage != null ? "char-count input-error" : "char-count")"
+                       autocomplete="off"
+                       spellcheck="true" />
+                <span id="char-count"
+                       class="char-count @(_inputText.Length > 450 ? "warn" : "")"
+                       aria-label="@($"現在 {_inputText.Length} 文字、最大 500 文字")">
+                    @_inputText.Length / 500
+                </span>
+                <button type="submit"
+                        class="send-btn"
+                        aria-label="送信"
+                        disabled="@(string.IsNullOrWhiteSpace(_inputText))">
+                    送信 ✈️
+                </button>
+            </form>
+
+            @if (_errorMessage != null)
+            {
+                <p id="input-error" class="error-message" role="alert">⚠️ @_errorMessage</p>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    // ─── 定数 ────────────────────────────────────────────────
+    private static readonly string[] _availableAvatars =
+    [
+        "🐱", "🐶", "🐼", "🐸", "🦊", "🐯",
+        "🐻", "🐨", "🦁", "🐮", "🐷", "🐙",
+        "🦋", "🌸", "⭐", "🌈", "🍎", "🎸"
+    ];
+
+    private static readonly string[] _reactions =
+    [
+        "👍", "❤️", "😂", "😮", "🎉", "🔥"
+    ];
+
+    // ─── 参加フォームモデル ──────────────────────────────────
+    private sealed class JoinModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "ニックネームを入力してください。")]
+        [System.ComponentModel.DataAnnotations.StringLength(20, ErrorMessage = "20文字以内で入力してください。")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@".*\S.*", ErrorMessage = "空白のみは使用できません。")]
+        public string Nickname { get; set; } = string.Empty;
+    }
+
+    // ─── 状態 ────────────────────────────────────────────────
+    private readonly JoinModel _joinModel = new();
+    private bool _joined;
+    private bool _disposed;
+    private string _myNickname = string.Empty;
+    private string _mySessionId = Guid.NewGuid().ToString("N");
+    private string _myAvatar = "🐱";
+    private string _selectedAvatar = "🐱";
+    private string _inputText = string.Empty;
+    private string? _errorMessage;
+    private string _viewAnnouncement = string.Empty;
+    private ElementReference _nicknameInput;
+    private ElementReference _messageInput;
+    private bool _focusNicknameInput = true;
+    private bool _focusMessageInput;
+    private List<ChatMessage> _messages = [];
+
+    // ─── ライフサイクル ──────────────────────────────────────
+    protected override void OnInitialized()
+    {
+        _messages = [.. ChatService.GetHistory()];
+        ChatService.MessageAdded += OnMessageAdded;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusNicknameInput)
+        {
+            _focusNicknameInput = false;
+            await _nicknameInput.FocusAsync();
+        }
+
+        if (_focusMessageInput)
+        {
+            _focusMessageInput = false;
+            await _messageInput.FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        ChatService.MessageAdded -= OnMessageAdded;
+    }
+
+    // ─── イベントハンドラー ──────────────────────────────────
+    private void OnMessageAdded(ChatMessage message)
+    {
+        if (_disposed)
+            return;
+
+        _ = UpdateMessagesAsync(message);
+    }
+
+    private async Task UpdateMessagesAsync(ChatMessage message)
+    {
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                if (_disposed)
+                    return;
+
+                _messages.Add(message);
+                if (_messages.Count > FunChat.Web.Services.ChatService.MaxHistory)
+                    _messages.RemoveAt(0);
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+            // 切断済みの Blazor Server circuit への通知は安全に無視する。
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Chat circuit was unavailable before message dispatch completed.");
+        }
+    }
+
+    private void HandleJoin()
+    {
+        var nick = _joinModel.Nickname.Trim();
+        if (string.IsNullOrEmpty(nick)) return;
+
+        _myNickname = nick;
+        _mySessionId = Guid.NewGuid().ToString("N");
+        _myAvatar = _selectedAvatar;
+        _joined = true;
+        _viewAnnouncement = $"チャット画面を表示しました。{_myNickname} さんとして参加中です。";
+        _focusMessageInput = true;
+
+        ChatService.PostMessage(
+            _myNickname,
+            _myAvatar,
+            $"{_myAvatar} {_myNickname} さんが参加しました！",
+            MessageType.Join,
+            _mySessionId);
+    }
+
+    private void HandleLeave()
+    {
+        ChatService.PostMessage(
+            _myNickname,
+            _myAvatar,
+            $"{_myAvatar} {_myNickname} さんが退出しました。",
+            MessageType.Leave,
+            _mySessionId);
+        _joined = false;
+        _myNickname = string.Empty;
+        _mySessionId = Guid.NewGuid().ToString("N");
+        _inputText = string.Empty;
+        _errorMessage = null;
+        _joinModel.Nickname = string.Empty;
+        _viewAnnouncement = "参加画面に戻りました。";
+        _focusNicknameInput = true;
+    }
+
+    private void HandleSend()
+    {
+        var text = _inputText.Trim();
+        if (string.IsNullOrEmpty(text)) return;
+
+        _errorMessage = null;
+        try
+        {
+            ChatService.PostMessage(_myNickname, _myAvatar, text, MessageType.Chat, _mySessionId);
+            _inputText = string.Empty;
+        }
+        catch (ArgumentException ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private void SendReaction(string emoji)
+    {
+        _errorMessage = null;
+        try
+        {
+            ChatService.PostMessage(_myNickname, _myAvatar, emoji, MessageType.Reaction, _mySessionId);
+        }
+        catch (ArgumentException ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            HandleSend();
+        }
+    }
+
+    // ─── ヘルパー ─────────────────────────────────────────────
+    private static string GetMessageClass(ChatMessage msg) =>
+        msg.Type switch
+        {
+            MessageType.Join => "join-leave-item",
+            MessageType.Leave => "join-leave-item",
+            MessageType.Reaction => "reaction-item",
+            _ => "chat-item"
+        };
+}
